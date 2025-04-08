@@ -1,5 +1,7 @@
 import os
 from dotenv import load_dotenv
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 # Load environment variables
 load_dotenv()
@@ -18,4 +20,16 @@ POOL_CONFIG = {
     'minconn': 1,
     'maxconn': 20,
     'connect_timeout': 30
-} 
+}
+
+def get_db_connection():
+    """Create and return a database connection."""
+    try:
+        conn = psycopg2.connect(
+            os.getenv('DATABASE_URL'),
+            cursor_factory=RealDictCursor
+        )
+        return conn
+    except Exception as e:
+        print(f"Error connecting to the database: {e}")
+        raise 
