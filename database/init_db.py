@@ -1,4 +1,9 @@
-from config import get_db_connection, release_connection
+from database.config import get_db_connection, release_connection
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def init_db():
     """Initialize the database with required tables."""
@@ -7,38 +12,67 @@ def init_db():
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # Create tables
+        # Create users table
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS campaigns (
-                id SERIAL PRIMARY KEY,
-                name VARCHAR(255) NOT NULL,
-                description TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            CREATE TABLE IF NOT EXISTS users (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                email VARCHAR(255) UNIQUE NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                first_name VARCHAR(100),
+                last_name VARCHAR(100),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
+        # Create user_profiles table
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS phishing_data (
-                id SERIAL PRIMARY KEY,
-                campaign_id INTEGER REFERENCES campaigns(id),
-                url TEXT NOT NULL,
-                domain TEXT,
-                ip_address TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+                phone VARCHAR(20),
+                address TEXT,
+                city VARCHAR(100),
+                country VARCHAR(100),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
-        # Add any additional tables as needed
+        # Create function to update updated_at timestamp
+        cursor.execute("""
+            CREATE OR REPLACE FUNCTION update_updated_at_column()
+            RETURNS TRIGGER AS $$
+            BEGIN
+                NEW.updated_at = CURRENT_TIMESTAMP;
+                RETURN NEW;
+            END;
+            $$ language 'plpgsql';
+        """)
+
+        # Create triggers for updated_at
+        cursor.execute("""
+            CREATE TRIGGER update_users_updated_at
+                BEFORE UPDATE ON users
+                FOR EACH ROW
+                EXECUTE FUNCTION update_updated_at_column();
+        """)
+
+        cursor.execute("""
+            CREATE TRIGGER update_user_profiles_updated_at
+                BEFORE UPDATE ON user_profiles
+                FOR EACH ROW
+                EXECUTE FUNCTION update_updated_at_column();
+        """)
 
         conn.commit()
-        print("Database tables created successfully!")
+        logger.info("Database tables created successfully!")
 
     except Exception as e:
-        print(f"Error initializing database: {e}")
+        logger.error(f"Error initializing database: {e}")
         if conn:
             conn.rollback()
+        raise
     finally:
         if conn:
             release_connection(conn)
