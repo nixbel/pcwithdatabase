@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from urllib.parse import urlparse
 
 # Load environment variables
 load_dotenv()
@@ -25,9 +26,20 @@ POOL_CONFIG = {
 def get_db_connection():
     """Create and return a database connection."""
     try:
+        # Get the database URL from environment (set by Render)
+        database_url = os.getenv('DATABASE_URL')
+        
+        if not database_url:
+            raise ValueError("DATABASE_URL environment variable is not set")
+            
+        # Parse the database URL
+        parsed_url = urlparse(database_url)
+        
+        # Create connection using the URL
         conn = psycopg2.connect(
-            os.getenv('DATABASE_URL'),
-            cursor_factory=RealDictCursor
+            database_url,
+            cursor_factory=RealDictCursor,
+            sslmode='require'  # Enable SSL for Render
         )
         return conn
     except Exception as e:
