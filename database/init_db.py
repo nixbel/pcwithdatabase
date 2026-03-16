@@ -1,4 +1,5 @@
 from database.config import get_db_connection, release_connection
+from database.login_operations import create_login_attempts_table
 import logging
 
 # Configure logging
@@ -67,6 +68,9 @@ def init_db():
 
         conn.commit()
         logger.info("Database tables created successfully!")
+        
+        # Create login_attempts table
+        create_login_attempts_table()
 
     except Exception as e:
         logger.error(f"Error initializing database: {e}")
