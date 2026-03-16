@@ -10,12 +10,9 @@ The primary goal of this phishing detection system is to:
 
 2. **Protect Users**: Provide an automated tool that helps users verify the legitimacy of websites they visit, reducing the risk of falling victim to phishing scams.
 
-3. **Enhance Security**: Implement multiple layers of security checks including:
-   - URL analysis
-   - Content verification
-   - Domain reputation checking
-   - SSL certificate validation
-   - Machine learning-based detection
+3. **Implementing awareness of the end user**: Implement multiple layers of security checks including:
+   - Phishing Attacks that the user can learn how to spot a fake website.
+   - Provide the infographics containing the guides and tips for spotting fake sites.
 
 4. **Educate Users**: Help users understand the characteristics of phishing websites and how to identify them.
 
@@ -179,5 +176,6 @@ This tool is for educational and research purposes only. Always verify the resul
 For support, please open an issue in the GitHub repository or contact the maintainers. 
 
 ## Created by
+
 
 Jacques Nico L. Belmonte  || Intern - Camarines Sur Polytechnic Colleges - Bachelor of Science in Computer Science
