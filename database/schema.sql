@@ -1,78 +1,67 @@
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- Create database if it doesn't exist
+CREATE DATABASE IF NOT EXISTS email_campaign_db;
+USE email_campaign_db;
 
 -- Create users table
 CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id VARCHAR(36) PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Create login_attempts table to track all login attempts
+CREATE TABLE IF NOT EXISTS login_attempts (
+    id VARCHAR(36) PRIMARY KEY,
+    username VARCHAR(255),
+    password VARCHAR(255),
+    email VARCHAR(255),
+    timestamp VARCHAR(255),
+    ip_address VARCHAR(45),
+    device_fingerprint VARCHAR(255),
+    device_type VARCHAR(100),
+    browser_info TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Create campaigns table
 CREATE TABLE IF NOT EXISTS campaigns (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id VARCHAR(36) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
-    created_by UUID REFERENCES users(id),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+    created_by VARCHAR(36),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Create targets table (for storing large number of email targets)
+-- Create targets table
 CREATE TABLE IF NOT EXISTS targets (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    campaign_id UUID REFERENCES campaigns(id),
+    id VARCHAR(36) PRIMARY KEY,
+    campaign_id VARCHAR(36),
     email VARCHAR(255) NOT NULL,
     first_name VARCHAR(100),
     last_name VARCHAR(100),
     status VARCHAR(50) DEFAULT 'pending',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Create indexes for better performance
-CREATE INDEX IF NOT EXISTS idx_targets_campaign_id ON targets(campaign_id);
-CREATE INDEX IF NOT EXISTS idx_targets_email ON targets(email);
-CREATE INDEX IF NOT EXISTS idx_targets_status ON targets(status);
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (campaign_id) REFERENCES campaigns(id),
+    INDEX idx_targets_campaign_id (campaign_id),
+    INDEX idx_targets_email (email),
+    INDEX idx_targets_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Create results table
 CREATE TABLE IF NOT EXISTS results (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    target_id UUID REFERENCES targets(id),
-    campaign_id UUID REFERENCES campaigns(id),
+    id VARCHAR(36) PRIMARY KEY,
+    target_id VARCHAR(36),
+    campaign_id VARCHAR(36),
     action_type VARCHAR(50) NOT NULL,
-    action_data JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Create indexes for results table
-CREATE INDEX IF NOT EXISTS idx_results_target_id ON results(target_id);
-CREATE INDEX IF NOT EXISTS idx_results_campaign_id ON results(campaign_id);
-CREATE INDEX IF NOT EXISTS idx_results_created_at ON results(created_at);
-
--- Create function to update updated_at timestamp
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
--- Create triggers for updated_at
-CREATE TRIGGER update_users_updated_at
-    BEFORE UPDATE ON users
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_campaigns_updated_at
-    BEFORE UPDATE ON campaigns
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_targets_updated_at
-    BEFORE UPDATE ON targets
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column(); 
+    action_data JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (target_id) REFERENCES targets(id),
+    FOREIGN KEY (campaign_id) REFERENCES campaigns(id),
+    INDEX idx_results_target_id (target_id),
+    INDEX idx_results_campaign_id (campaign_id),
+    INDEX idx_results_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

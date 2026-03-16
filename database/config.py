@@ -1,8 +1,6 @@
 import os
 from dotenv import load_dotenv
-import psycopg2
-from psycopg2.extras import RealDictCursor
-from psycopg2 import pool
+import pymysql
 import logging
 
 # Configure logging
@@ -12,40 +10,28 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-# Database connection pool
-connection_pool = None
-
 def get_db_config():
     """Get database configuration based on environment."""
     return {
         'host': os.getenv('DB_HOST', 'localhost'),
-        'port': os.getenv('DB_PORT', '5432'),
-        'database': os.getenv('DB_NAME', 'mydatabase'),
-        'user': os.getenv('DB_USER', 'postgres'),
+        'port': int(os.getenv('DB_PORT', '3306')),
+        'database': os.getenv('DB_NAME', 'email_campaign_db'),
+        'user': os.getenv('DB_USER', 'root'),
         'password': os.getenv('DB_PASSWORD', ''),
+        'charset': 'utf8mb4',
+        'cursorclass': pymysql.cursors.DictCursor
     }
 
-def init_connection_pool():
-    """Initialize the connection pool."""
-    global connection_pool
+def get_db_connection():
+    """Get a database connection."""
     try:
         config = get_db_config()
-        connection_pool = pool.ThreadedConnectionPool(
-            minconn=1,
-            maxconn=20,
-            **config,
-            cursor_factory=RealDictCursor
-        )
-        logger.info("Database connection pool initialized successfully")
+        connection = pymysql.connect(**config)
+        logger.info("Database connection established successfully")
+        return connection
     except Exception as e:
-        logger.error(f"Error initializing connection pool: {e}")
+        logger.error(f"Error connecting to database: {e}")
         raise
-
-def get_db_connection():
-    """Get a database connection from the pool."""
-    if connection_pool is None:
-        init_connection_pool()
-    return connection_pool.getconn()
 
 def release_connection(conn):
     """Release a database connection back to the pool."""
